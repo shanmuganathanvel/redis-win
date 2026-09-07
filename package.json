@@ -6,9 +6,19 @@
   "bin": {
     "redis-win": "bin/redis-win.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node bin/redis-win.js",
     "test": "node --test test/**/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shanmuganathanvel/redis-win.git"
   },
   "keywords": [
     "redis",
@@ -18,10 +28,15 @@
     "cache",
     "resp",
     "zero-dependency",
-    "lightweight"
+    "lightweight",
+    "npx"
   ],
-  "author": "",
+  "author": "Shanmuganathan Palanivel",
   "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/shanmuganathanvel/redis-win/issues"
+  },
+  "homepage": "https://github.com/shanmuganathanvel/redis-win#readme",
   "engines": {
     "node": ">=16.0.0"
   }
