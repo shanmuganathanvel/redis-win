@@ -160,6 +160,22 @@ function registerGenericCommands(registry) {
   registry.register('DBSIZE', (client) => {
     return client.getDB().dbsize();
   });
+
+  registry.register('SAVE', (client) => {
+    client.server.persistence.save();
+    return OK;
+  });
+
+  registry.register('BGSAVE', (client) => {
+    setImmediate(() => {
+      client.server.persistence.save();
+    });
+    return serializeSimpleString('Background saving started');
+  });
+
+  registry.register('LASTSAVE', (client) => {
+    return client.server.persistence.lastSaveTime;
+  });
 }
 
 module.exports = registerGenericCommands;

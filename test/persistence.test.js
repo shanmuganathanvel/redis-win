@@ -50,6 +50,12 @@ test('Persistence: Save and restore snapshot to JSON file', async () => {
     assert.deepStrictEqual(registry.execute(mockClient2, ['LRANGE', 'jobs', '0', '-1']), ['jobA', 'jobB']);
     assert.strictEqual(registry.execute(mockClient2, ['SISMEMBER', 'tags', 'win']), 1);
     assert.strictEqual(registry.execute(mockClient2, ['ZSCORE', 'leaderboard', 'player2']), '250');
+
+    // 3. Test SAVE, BGSAVE, LASTSAVE commands
+    const saveRes = registry.execute(mockClient2, ['SAVE']);
+    assert.strictEqual(saveRes.toString(), '+OK\r\n');
+    const lastSave = registry.execute(mockClient2, ['LASTSAVE']);
+    assert.ok(typeof lastSave === 'number' && lastSave > 0);
   } finally {
     if (fs.existsSync(savePath)) {
       fs.unlinkSync(savePath);

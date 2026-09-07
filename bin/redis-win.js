@@ -37,7 +37,12 @@ function parseArgs() {
     } else if (arg === '-a' || arg === '--auth') {
       options.auth = args[++i];
     } else if (arg === '--save') {
-      options.savePath = args[++i];
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.savePath = args[++i];
+      } else {
+        options.savePath = './redis-dump.json';
+      }
     } else if (arg === '-v' || arg === '--verbose') {
       options.verbose = true;
     } else if (arg === '--help') {

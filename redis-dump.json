@@ -1,0 +1,9 @@
+{
+  "0": {
+    "color": {
+      "type": "string",
+      "value": "blue",
+      "ttl": null
+    }
+  }
+}

@@ -8,6 +8,7 @@ class PersistenceManager {
   constructor(datastore, filePath) {
     this.datastore = datastore;
     this.filePath = filePath ? path.resolve(filePath) : null;
+    this.lastSaveTime = Math.floor(Date.now() / 1000);
   }
 
   load() {
@@ -55,9 +56,9 @@ class PersistenceManager {
     }
   }
 
-  save() {
+  save(fallbackPath = './redis-dump.json') {
     if (!this.filePath) {
-      return;
+      this.filePath = path.resolve(fallbackPath);
     }
 
     try {
@@ -77,6 +78,7 @@ class PersistenceManager {
       const tempPath = `${this.filePath}.tmp.${Date.now()}`;
       fs.writeFileSync(tempPath, JSON.stringify(dump, null, 2), 'utf8');
       fs.renameSync(tempPath, this.filePath);
+      this.lastSaveTime = Math.floor(Date.now() / 1000);
     } catch (err) {
       console.error(`[Persistence] Error saving snapshot to ${this.filePath}:`, err.message);
     }

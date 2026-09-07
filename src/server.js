@@ -37,6 +37,7 @@ class RedisServer extends EventEmitter {
 
     this.tcpServer = null;
     this.expireInterval = null;
+    this.saveInterval = null;
   }
 
   start() {
@@ -48,6 +49,13 @@ class RedisServer extends EventEmitter {
       this.expireInterval = setInterval(() => {
         this.datastore.activeExpireCycle();
       }, 100);
+
+      // Periodic snapshot save every 60s if persistence is enabled
+      if (this.options.savePath) {
+        this.saveInterval = setInterval(() => {
+          this.persistence.save();
+        }, 60000);
+      }
 
       this.tcpServer = net.createServer((socket) => {
         this.stats.totalConnections++;
@@ -79,6 +87,10 @@ class RedisServer extends EventEmitter {
       if (this.expireInterval) {
         clearInterval(this.expireInterval);
         this.expireInterval = null;
+      }
+      if (this.saveInterval) {
+        clearInterval(this.saveInterval);
+        this.saveInterval = null;
       }
 
       // Save snapshot on exit if configured
