@@ -24,7 +24,7 @@ function parseArgs() {
     port: parseInt(process.env.REDIS_PORT || process.env.PORT || '6379', 10),
     host: '127.0.0.1',
     auth: null,
-    savePath: null,
+    savePath: './redis-dump.json',
     verbose: false,
   };
 
@@ -43,6 +43,8 @@ function parseArgs() {
       } else {
         options.savePath = './redis-dump.json';
       }
+    } else if (arg === '--no-save') {
+      options.savePath = null;
     } else if (arg === '-v' || arg === '--verbose') {
       options.verbose = true;
     } else if (arg === '--help') {
@@ -58,7 +60,8 @@ Options:
   -p, --port <port>       Port to listen on (default: 6379)
   -h, --host <host>       Bind host address (default: 127.0.0.1)
   -a, --auth <password>   Require password authentication
-  --save <filepath>       File path to periodically save/restore data
+  --save <filepath>       File path to save/restore data (default: ./redis-dump.json)
+  --no-save               Disable persistence and run purely in-memory
   -v, --verbose           Enable verbose connection logging
   --help                  Show this help screen
   --version               Show version number

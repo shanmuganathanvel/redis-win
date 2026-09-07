@@ -68,18 +68,25 @@ redis-win [options]
 | `--port <port>` | `-p` | Port to listen on (or via `REDIS_PORT` env) | `6379` |
 | `--host <host>` | `-h` | Bind IP address | `127.0.0.1` |
 | `--auth <password>` | `-a` | Require client authentication password | `none` |
-| `--save <filepath>` | | Persist database state to a JSON file | `none` (in-memory) |
+| `--save <filepath>` | | File path to save/restore data across restarts | `./redis-dump.json` (enabled) |
+| `--no-save` | | Disable persistence and run purely in-memory | `false` |
 | `--verbose` | `-v` | Log every client connection and event | `false` |
 | `--help` | | Show help screen | |
 | `--version` | | Show version number | |
 
 ### Examples
 ```bash
+# Start server with persistence enabled by default
+npx redis-win
+
+# Run purely in-memory (no disk saves)
+npx redis-win --no-save
+
+# Run with custom dump file path
+npx redis-win --save ./data/my-dump.json
+
 # Run on custom port with password authentication
 npx redis-win --port 6380 --auth mysecretpassword
-
-# Run with snapshot persistence to local file
-npx redis-win --save ./data/dump.json
 ```
 
 ---
