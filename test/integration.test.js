@@ -17,11 +17,19 @@ function createTcpClient(port) {
 
 function sendCommand(socket, ...args) {
   return new Promise((resolve, reject) => {
-    const parser = new RespParser((cmd) => {
-      resolve(cmd);
-    });
-
+    let parser;
     const onData = (chunk) => {
+      const str = chunk.toString('utf8');
+      if (str === '$-1\r\n' || str === '*-1\r\n') {
+        socket.off('data', onData);
+        return resolve(null);
+      }
+      if (!parser) {
+        parser = new RespParser((cmd) => {
+          socket.off('data', onData);
+          resolve(cmd);
+        });
+      }
       parser.feed(chunk);
     };
 
@@ -29,7 +37,10 @@ function sendCommand(socket, ...args) {
 
     const payload = `*${args.length}\r\n` + args.map((a) => `$${Buffer.byteLength(String(a))}\r\n${a}\r\n`).join('');
     socket.write(payload, (err) => {
-      if (err) reject(err);
+      if (err) {
+        socket.off('data', onData);
+        reject(err);
+      }
     });
   });
 }
@@ -105,6 +116,40 @@ test('Integration: Real TCP Server connection, handshakes, commands, pub/sub, an
     assert.deepStrictEqual(workerResult, ['tasks', 'process-video']);
 
     workerClient.destroy();
+
+    // 4. GET on non-existent key returns null without hanging
+    const getMissing = await sendCommand(producerClient, 'GET', 'nonexistent_key_123');
+    assert.strictEqual(getMissing, null);
+
+    // 5. BZPOPMIN immediate return when element exists
+    await sendCommand(producerClient, 'ZADD', 'bull:immediate:marker', '100', 'job-1');
+    const bzpopImmediate = await sendCommand(producerClient, 'BZPOPMIN', 'bull:immediate:marker', '1');
+    assert.deepStrictEqual(bzpopImmediate, ['bull:immediate:marker', 'job-1', '100']);
+
+    // 6. BZPOPMIN timeout returns null (*-1\r\n)
+    const bzpopTimeout = await sendCommand(producerClient, 'BZPOPMIN', 'bull:empty:marker', '0.1');
+    assert.strictEqual(bzpopTimeout, null);
+
+    // 7. BZPOPMIN blocked then unblocked by ZADD from producer
+    const bzWorkerClient = await createTcpClient(port);
+    let bzWorkerResult = null;
+    const bzParser = new RespParser((res) => {
+      bzWorkerResult = res;
+    });
+    bzWorkerClient.on('data', (chunk) => bzParser.feed(chunk));
+
+    // Worker blocks on bull:marker queue with 2 sec timeout
+    bzWorkerClient.write('*3\r\n$8\r\nBZPOPMIN\r\n$11\r\nbull:marker\r\n$1\r\n2\r\n');
+    await new Promise((r) => setTimeout(r, 50));
+    assert.strictEqual(bzWorkerResult, null); // blocked!
+
+    // Producer adds marker
+    await sendCommand(producerClient, 'ZADD', 'bull:marker', '500', 'delayed-job');
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.deepStrictEqual(bzWorkerResult, ['bull:marker', 'delayed-job', '500']);
+
+    bzWorkerClient.destroy();
     producerClient.destroy();
   } finally {
     await server.stop();

@@ -30,6 +30,7 @@ function createMockClient() {
       blockClient() {},
       unblockClient() {},
       checkBlockedListClients() {},
+      checkBlockedZSetClients() {},
       publish() { return 0; },
     },
     getDB() {
@@ -190,3 +191,77 @@ test('Transactions: MULTI, EXEC, DISCARD', () => {
   registry.execute(client, ['DISCARD']);
   assert.strictEqual(registry.execute(client, ['GET', 'discard_key']), null);
 });
+
+test('Sorted Sets: ZREMRANGEBYRANK', () => {
+  const registry = new CommandRegistry();
+  const { client } = createMockClient();
+
+  // Test non-existent key
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYRANK', 'nonexistent', '0', '-1']), 0);
+
+  // Setup elements: rank 0=a, 1=b, 2=c, 3=d, 4=e
+  registry.execute(client, ['ZADD', 'myz', '10', 'a', '20', 'b', '30', 'c', '40', 'd', '50', 'e']);
+
+  // Remove rank 1 to 2 ('b' and 'c')
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYRANK', 'myz', '1', '2']), 2);
+  assert.deepStrictEqual(registry.execute(client, ['ZRANGE', 'myz', '0', '-1']), ['a', 'd', 'e']);
+
+  // BullMQ pattern: remove all except last 1 element (keep count = 1 -> range 0 to -(1 + 1) = 0 to -2)
+  // For ['a', 'd', 'e'], 0 to -2 removes 'a' and 'd', leaving 'e'
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYRANK', 'myz', '0', '-2']), 2);
+  assert.deepStrictEqual(registry.execute(client, ['ZRANGE', 'myz', '0', '-1']), ['e']);
+
+  // Remove remaining element and verify key cleanup
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYRANK', 'myz', '0', '-1']), 1);
+  assert.strictEqual(registry.execute(client, ['EXISTS', 'myz']), 0);
+
+  // Edge cases: start > stop
+  registry.execute(client, ['ZADD', 'myz', '1', 'one']);
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYRANK', 'myz', '2', '1']), 0);
+
+  // Error cases
+  assert.throws(() => registry.execute(client, ['ZREMRANGEBYRANK', 'myz']), /wrong number of arguments/);
+  assert.throws(() => registry.execute(client, ['ZREMRANGEBYRANK', 'myz', 'invalid', '0']), /value is not an integer/);
+});
+
+test('Sorted Sets: ZREMRANGEBYSCORE', () => {
+  const registry = new CommandRegistry();
+  const { client } = createMockClient();
+
+  // Test non-existent key
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYSCORE', 'nonexistent', '-inf', '+inf']), 0);
+
+  registry.execute(client, ['ZADD', 'myscores', '10', 'a', '20', 'b', '30', 'c', '40', 'd', '50', 'e']);
+
+  // Exclusive min '(10', inclusive max '30' -> removes 'b'(20) and 'c'(30)
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYSCORE', 'myscores', '(10', '30']), 2);
+  assert.deepStrictEqual(registry.execute(client, ['ZRANGE', 'myscores', '0', '-1']), ['a', 'd', 'e']);
+
+  // BullMQ max age pattern: "-inf" to score
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYSCORE', 'myscores', '-inf', '40']), 2); // 'a' (10) and 'd' (40)
+  assert.deepStrictEqual(registry.execute(client, ['ZRANGE', 'myscores', '0', '-1']), ['e']);
+
+  // Infinite upper bound and key deletion
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYSCORE', 'myscores', '50', '+inf']), 1);
+  assert.strictEqual(registry.execute(client, ['EXISTS', 'myscores']), 0);
+
+  // Error cases
+  assert.throws(() => registry.execute(client, ['ZREMRANGEBYSCORE', 'myscores']), /wrong number of arguments/);
+  assert.throws(() => registry.execute(client, ['ZREMRANGEBYSCORE', 'myscores', 'notanumber', '10']), /min or max is not a float/);
+});
+
+test('Sorted Sets: ZREMRANGEBYLEX', () => {
+  const registry = new CommandRegistry();
+  const { client } = createMockClient();
+
+  registry.execute(client, ['ZADD', 'mylex', '0', 'apple', '0', 'banana', '0', 'cherry', '0', 'date']);
+
+  // Remove [banana to (date -> removes banana and cherry
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYLEX', 'mylex', '[banana', '(date']), 2);
+  assert.deepStrictEqual(registry.execute(client, ['ZRANGE', 'mylex', '0', '-1']), ['apple', 'date']);
+
+  // Remove all with - to +
+  assert.strictEqual(registry.execute(client, ['ZREMRANGEBYLEX', 'mylex', '-', '+']), 2);
+  assert.strictEqual(registry.execute(client, ['EXISTS', 'mylex']), 0);
+});
+

@@ -11,6 +11,8 @@ const registerSets = require('./sets');
 const registerZSets = require('./zsets');
 const registerPubSub = require('./pubsub');
 const registerTransactions = require('./transactions');
+const registerStreams = require('./streams');
+const registerScripting = require('./scripting');
 
 class CommandRegistry {
   constructor() {
@@ -25,6 +27,8 @@ class CommandRegistry {
     registerZSets(this);
     registerPubSub(this);
     registerTransactions(this);
+    registerStreams(this);
+    registerScripting(this);
   }
 
   register(name, handler) {
@@ -37,7 +41,7 @@ class CommandRegistry {
 
   execute(client, rawArgs, isFromMulti = false) {
     if (!rawArgs || rawArgs.length === 0) {
-      return null;
+      return undefined;
     }
 
     const cmdName = String(rawArgs[0]).toUpperCase();

@@ -18,7 +18,7 @@ function registerPubSubCommands(registry) {
       client.socket.write(serializeArray(['subscribe', channel, subCount]));
     }
 
-    return null; // Response already sent per channel
+    return undefined; // Response already sent per channel
   });
 
   registry.register('UNSUBSCRIBE', (client, args) => {
@@ -27,7 +27,7 @@ function registerPubSubCommands(registry) {
     if (channels.length === 0) {
       const subCount = client.totalSubscriptions();
       client.socket.write(serializeArray(['unsubscribe', null, subCount]));
-      return null;
+      return undefined;
     }
 
     for (const channel of channels) {
@@ -41,7 +41,7 @@ function registerPubSubCommands(registry) {
       client.isSubscriber = false;
     }
 
-    return null;
+    return undefined;
   });
 
   registry.register('PSUBSCRIBE', (client, args) => {
@@ -58,7 +58,7 @@ function registerPubSubCommands(registry) {
       client.socket.write(serializeArray(['psubscribe', pattern, subCount]));
     }
 
-    return null;
+    return undefined;
   });
 
   registry.register('PUNSUBSCRIBE', (client, args) => {
@@ -67,7 +67,7 @@ function registerPubSubCommands(registry) {
     if (patterns.length === 0) {
       const subCount = client.totalSubscriptions();
       client.socket.write(serializeArray(['punsubscribe', null, subCount]));
-      return null;
+      return undefined;
     }
 
     for (const pattern of patterns) {
@@ -81,7 +81,7 @@ function registerPubSubCommands(registry) {
       client.isSubscriber = false;
     }
 
-    return null;
+    return undefined;
   });
 
   registry.register('PUBLISH', (client, args) => {

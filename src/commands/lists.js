@@ -1,6 +1,6 @@
 'use strict';
 
-const { OK } = require('../protocol/serializer');
+const { OK, NULL_ARRAY } = require('../protocol/serializer');
 const { RedisList } = require('../datastore/data_types');
 
 function registerListCommands(registry) {
@@ -23,7 +23,9 @@ function registerListCommands(registry) {
     const list = entry.value;
     const len = list.pushLeft(...args.slice(1));
     db.emit('key:modified', key);
-    client.server.checkBlockedListClients(db.index, key);
+    if (client.server && typeof client.server.checkBlockedListClients === 'function') {
+      client.server.checkBlockedListClients(db.index, key);
+    }
     return len;
   });
 
@@ -46,7 +48,9 @@ function registerListCommands(registry) {
     const list = entry.value;
     const len = list.pushRight(...args.slice(1));
     db.emit('key:modified', key);
-    client.server.checkBlockedListClients(db.index, key);
+    if (client.server && typeof client.server.checkBlockedListClients === 'function') {
+      client.server.checkBlockedListClients(db.index, key);
+    }
     return len;
   });
 
@@ -186,6 +190,20 @@ function registerListCommands(registry) {
     return removed;
   });
 
+  registry.register('RPOPLPUSH', (client, args) => {
+    if (args.length < 2) {
+      throw new Error("ERR wrong number of arguments for 'rpoplpush' command");
+    }
+    return executeLMove(client, args[0], args[1], 'RIGHT', 'LEFT');
+  });
+
+  registry.register('LMOVE', (client, args) => {
+    if (args.length < 4) {
+      throw new Error("ERR wrong number of arguments for 'lmove' command");
+    }
+    return executeLMove(client, args[0], args[1], args[2], args[3]);
+  });
+
   // Blocking list operations: BLPOP and BRPOP
   registry.register('BLPOP', (client, args) => {
     return handleBlockingListPop(client, args, 'left');
@@ -232,25 +250,82 @@ function handleBlockingListPop(client, args, direction) {
   return new Promise((resolve) => {
     let timer = null;
     const blockInfo = {
+      type: 'list',
       dbIndex: db.index,
       keys,
       direction,
       resolve: (result) => {
         if (timer) clearTimeout(timer);
-        client.server.unblockClient(client);
+        if (client.server) {
+          client.server.unblockClient(client);
+        }
         resolve(result);
       },
     };
 
     if (timeoutSec > 0) {
       timer = setTimeout(() => {
-        client.server.unblockClient(client);
-        resolve(null); // Nil array
+        if (client.server) {
+          client.server.unblockClient(client);
+        }
+        resolve(NULL_ARRAY); // Nil array
       }, timeoutSec * 1000);
     }
+    blockInfo.timer = timer;
 
-    client.server.blockClient(client, blockInfo);
+    if (client.server) {
+      client.server.blockClient(client, blockInfo);
+    }
   });
+}
+
+function executeLMove(client, sourceKey, destKey, whereFrom, whereTo) {
+  const from = whereFrom.toUpperCase();
+  const to = whereTo.toUpperCase();
+  if (from !== 'LEFT' && from !== 'RIGHT') {
+    throw new Error('ERR syntax error');
+  }
+  if (to !== 'LEFT' && to !== 'RIGHT') {
+    throw new Error('ERR syntax error');
+  }
+
+  const db = client.getDB();
+  const srcEntry = db.getEntry(sourceKey);
+  if (!srcEntry) {
+    return null;
+  }
+  if (srcEntry.type !== 'list') {
+    throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+  }
+
+  let destEntry = db.getEntry(destKey);
+  if (destEntry && destEntry.type !== 'list') {
+    throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+  }
+
+  let destList;
+  if (sourceKey === destKey) {
+    destList = srcEntry.value;
+  } else if (!destEntry) {
+    destList = new RedisList();
+    db.setEntry(destKey, 'list', destList);
+  } else {
+    destList = destEntry.value;
+  }
+
+  const movedItem = srcEntry.value.move(destList, from, to);
+  if (srcEntry.value.len() === 0 && sourceKey !== destKey) {
+    db.deleteKey(sourceKey);
+  } else {
+    db.emit('key:modified', sourceKey);
+  }
+
+  if (sourceKey !== destKey) {
+    db.emit('key:modified', destKey);
+  }
+
+  client.server.checkBlockedListClients(db.index, destKey);
+  return movedItem;
 }
 
 module.exports = registerListCommands;

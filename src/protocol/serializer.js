@@ -89,6 +89,9 @@ function serialize(val) {
   if (val === null || val === undefined) {
     return NULL_BULK;
   }
+  if (val === OK || val === PONG || val === QUEUED || val === NULL_ARRAY || val === NULL_BULK) {
+    return val;
+  }
   if (Buffer.isBuffer(val)) {
     return serializeBulkString(val);
   }

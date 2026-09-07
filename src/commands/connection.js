@@ -29,7 +29,7 @@ function registerConnectionCommands(registry) {
 
   registry.register('QUIT', (client) => {
     client.socket.end(OK);
-    return null;
+    return undefined;
   });
 
   registry.register('AUTH', (client, args) => {

@@ -6,6 +6,7 @@ const { Datastore, globToRegex } = require('./datastore/db');
 const CommandRegistry = require('./commands');
 const ClientSession = require('./client');
 const PersistenceManager = require('./persistence/snapshot');
+const ScriptingEngine = require('./scripting/engine');
 const { serializeArray } = require('./protocol/serializer');
 
 class RedisServer extends EventEmitter {
@@ -23,6 +24,7 @@ class RedisServer extends EventEmitter {
     this.datastore = new Datastore(16);
     this.registry = new CommandRegistry();
     this.persistence = new PersistenceManager(this.datastore, this.options.savePath);
+    this.scripting = new ScriptingEngine(this);
 
     this.clients = new Set();
     this.channelSubscribers = new Map(); // channel -> Set<ClientSession>
@@ -44,6 +46,9 @@ class RedisServer extends EventEmitter {
     return new Promise((resolve, reject) => {
       // Load saved snapshot if configured
       this.persistence.load();
+
+      // Pre-warm scripting engine
+      this.scripting.init().catch(() => {});
 
       // Active expiration timer every 100ms
       this.expireInterval = setInterval(() => {
@@ -202,14 +207,17 @@ class RedisServer extends EventEmitter {
   }
 
   unblockClient(client) {
+    if (client.blockedInfo && client.blockedInfo.timer) {
+      clearTimeout(client.blockedInfo.timer);
+    }
     client.isBlocked = false;
     client.blockedInfo = null;
     this.blockedClients.delete(client);
   }
 
   checkBlockedListClients(dbIndex, key) {
-    for (const client of this.blockedClients) {
-      if (!client.blockedInfo) continue;
+    for (const client of [...this.blockedClients]) {
+      if (!client.blockedInfo || client.blockedInfo.type !== 'list') continue;
       if (client.blockedInfo.dbIndex !== dbIndex) continue;
       if (!client.blockedInfo.keys.includes(key)) continue;
 
@@ -228,7 +236,31 @@ class RedisServer extends EventEmitter {
 
         const resolve = client.blockedInfo.resolve;
         resolve([key, item]);
-        break; // Only one client pops the item
+      }
+    }
+  }
+
+  checkBlockedZSetClients(dbIndex, key) {
+    for (const client of [...this.blockedClients]) {
+      if (!client.blockedInfo || client.blockedInfo.type !== 'zset') continue;
+      if (client.blockedInfo.dbIndex !== dbIndex) continue;
+      if (!client.blockedInfo.keys.includes(key)) continue;
+
+      const db = this.datastore.getDB(dbIndex);
+      const entry = db.getEntry(key);
+      if (entry && entry.type === 'zset' && entry.value.card() > 0) {
+        const popped = client.blockedInfo.direction === 'min'
+          ? entry.value.popMin(1)
+          : entry.value.popMax(1);
+
+        if (entry.value.card() === 0) {
+          db.deleteKey(key);
+        } else {
+          db.emit('key:modified', key);
+        }
+
+        const resolve = client.blockedInfo.resolve;
+        resolve([key, popped[0], popped[1]]);
       }
     }
   }

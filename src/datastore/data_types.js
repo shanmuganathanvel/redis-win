@@ -44,6 +44,24 @@ class RedisList {
     return popped;
   }
 
+  popRightPushLeft(destinationList) {
+    if (this.items.length === 0) return null;
+    const item = this.items.pop();
+    destinationList.pushLeft(item);
+    return item;
+  }
+
+  move(destinationList, whereFrom = 'LEFT', whereTo = 'RIGHT') {
+    if (this.items.length === 0) return null;
+    const item = whereFrom.toUpperCase() === 'LEFT' ? this.items.shift() : this.items.pop();
+    if (whereTo.toUpperCase() === 'LEFT') {
+      destinationList.pushLeft(item);
+    } else {
+      destinationList.pushRight(item);
+    }
+    return item;
+  }
+
   len() {
     return this.items.length;
   }
@@ -330,23 +348,100 @@ class RedisSortedSet {
     return result;
   }
 
-  rangeByScore(minVal, maxVal, { rev = false, withScores = false, offset = 0, count = -1 } = {}) {
-    const parseBound = (v) => {
-      let val = String(v).trim();
-      let inclusive = true;
-      if (val.startsWith('(')) {
-        inclusive = false;
-        val = val.substring(1);
-      }
-      let num;
-      if (val === '+inf') num = Infinity;
-      else if (val === '-inf') num = -Infinity;
-      else num = parseFloat(val);
-      return { num, inclusive };
-    };
+  static parseScoreBound(v) {
+    let val = String(v).trim();
+    let inclusive = true;
+    if (val.startsWith('(')) {
+      inclusive = false;
+      val = val.substring(1);
+    }
+    let num;
+    if (val === '+inf') num = Infinity;
+    else if (val === '-inf') num = -Infinity;
+    else num = parseFloat(val);
+    if (isNaN(num)) {
+      throw new Error('ERR min or max is not a float');
+    }
+    return { num, inclusive };
+  }
 
-    const min = parseBound(minVal);
-    const max = parseBound(maxVal);
+  static parseLexBound(v) {
+    const val = String(v);
+    if (val === '-') return { type: 'min_inf' };
+    if (val === '+') return { type: 'max_inf' };
+    if (val.startsWith('[')) return { type: 'inc', str: val.substring(1) };
+    if (val.startsWith('(')) return { type: 'exc', str: val.substring(1) };
+    throw new Error('ERR min or max not valid string range item');
+  }
+
+  remRangeByRank(start, stop) {
+    const len = this.sorted.length;
+    if (len === 0) return 0;
+    let s = start < 0 ? len + start : start;
+    let e = stop < 0 ? len + stop : stop;
+    if (s < 0) s = 0;
+    if (s >= len || s > e) return 0;
+    if (e >= len) e = len - 1;
+
+    const count = e - s + 1;
+    const removed = this.sorted.splice(s, count);
+    for (const item of removed) {
+      this.memberScores.delete(item.member);
+    }
+    return removed.length;
+  }
+
+  remRangeByScore(minVal, maxVal) {
+    const min = RedisSortedSet.parseScoreBound(minVal);
+    const max = RedisSortedSet.parseScoreBound(maxVal);
+
+    const toKeep = [];
+    let removed = 0;
+    for (const item of this.sorted) {
+      const gte = min.inclusive ? item.score >= min.num : item.score > min.num;
+      const lte = max.inclusive ? item.score <= max.num : item.score < max.num;
+      if (gte && lte) {
+        this.memberScores.delete(item.member);
+        removed++;
+      } else {
+        toKeep.push(item);
+      }
+    }
+    this.sorted = toKeep;
+    return removed;
+  }
+
+  remRangeByLex(minVal, maxVal) {
+    const min = RedisSortedSet.parseLexBound(minVal);
+    const max = RedisSortedSet.parseLexBound(maxVal);
+
+    const toKeep = [];
+    let removed = 0;
+    for (const item of this.sorted) {
+      let matchMin = false;
+      if (min.type === 'min_inf') matchMin = true;
+      else if (min.type === 'inc') matchMin = item.member >= min.str;
+      else if (min.type === 'exc') matchMin = item.member > min.str;
+
+      let matchMax = false;
+      if (max.type === 'max_inf') matchMax = true;
+      else if (max.type === 'inc') matchMax = item.member <= max.str;
+      else if (max.type === 'exc') matchMax = item.member < max.str;
+
+      if (matchMin && matchMax) {
+        this.memberScores.delete(item.member);
+        removed++;
+      } else {
+        toKeep.push(item);
+      }
+    }
+    this.sorted = toKeep;
+    return removed;
+  }
+
+  rangeByScore(minVal, maxVal, { rev = false, withScores = false, offset = 0, count = -1 } = {}) {
+    const min = RedisSortedSet.parseScoreBound(minVal);
+    const max = RedisSortedSet.parseScoreBound(maxVal);
 
     let filtered = this.sorted.filter((item) => {
       const gte = min.inclusive ? item.score >= min.num : item.score > min.num;
@@ -389,6 +484,147 @@ class RedisSortedSet {
     this.add(newScore, str);
     return String(newScore);
   }
+
+  popMin(count = 1) {
+    if (this.sorted.length === 0) return [];
+    const limit = Math.min(count, this.sorted.length);
+    const popped = this.sorted.splice(0, limit);
+    const result = [];
+    for (const item of popped) {
+      this.memberScores.delete(item.member);
+      result.push(item.member, String(item.score));
+    }
+    return result;
+  }
+
+  popMax(count = 1) {
+    if (this.sorted.length === 0) return [];
+    const limit = Math.min(count, this.sorted.length);
+    const popped = this.sorted.splice(this.sorted.length - limit, limit);
+    const result = [];
+    for (let i = popped.length - 1; i >= 0; i--) {
+      const item = popped[i];
+      this.memberScores.delete(item.member);
+      result.push(item.member, String(item.score));
+    }
+    return result;
+  }
+}
+
+class RedisStream {
+  constructor(initialEntries = []) {
+    this.entries = [...initialEntries]; // array of { id: string, ms: number, seq: number, fields: string[] }
+    this.lastMs = 0;
+    this.lastSeq = 0;
+    if (this.entries.length > 0) {
+      const last = this.entries[this.entries.length - 1];
+      this.lastMs = last.ms;
+      this.lastSeq = last.seq;
+    }
+  }
+
+  _parseId(idStr) {
+    const parts = String(idStr).split('-');
+    const ms = parseInt(parts[0], 10);
+    const seq = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    return { ms, seq };
+  }
+
+  generateId(idPattern = '*') {
+    if (idPattern === '*') {
+      const now = Date.now();
+      let ms = now;
+      let seq = 0;
+      if (ms === this.lastMs) {
+        seq = this.lastSeq + 1;
+      } else if (ms < this.lastMs) {
+        ms = this.lastMs;
+        seq = this.lastSeq + 1;
+      }
+      this.lastMs = ms;
+      this.lastSeq = seq;
+      return `${ms}-${seq}`;
+    }
+
+    if (idPattern.endsWith('-*')) {
+      const ms = parseInt(idPattern.slice(0, -2), 10);
+      let seq = 0;
+      if (ms === this.lastMs) {
+        seq = this.lastSeq + 1;
+      }
+      this.lastMs = ms;
+      this.lastSeq = seq;
+      return `${ms}-${seq}`;
+    }
+
+    const { ms, seq } = this._parseId(idPattern);
+    if (ms < this.lastMs || (ms === this.lastMs && seq <= this.lastSeq)) {
+      throw new Error('ERR The ID specified in XADD is equal or smaller than the target stream top item');
+    }
+    this.lastMs = ms;
+    this.lastSeq = seq;
+    return `${ms}-${seq}`;
+  }
+
+  add(id, fields = []) {
+    const generatedId = this.generateId(id);
+    const { ms, seq } = this._parseId(generatedId);
+    const entry = { id: generatedId, ms, seq, fields: fields.map(String) };
+    this.entries.push(entry);
+    return generatedId;
+  }
+
+  len() {
+    return this.entries.length;
+  }
+
+  range(start = '-', end = '+', count = -1) {
+    let list = this.entries;
+    if (start !== '-') {
+      const s = this._parseId(start);
+      list = list.filter((e) => e.ms > s.ms || (e.ms === s.ms && e.seq >= s.seq));
+    }
+    if (end !== '+') {
+      const e = this._parseId(end);
+      list = list.filter((item) => item.ms < e.ms || (item.ms === e.ms && item.seq <= e.seq));
+    }
+    if (count >= 0) {
+      list = list.slice(0, count);
+    }
+    return list.map((e) => [e.id, e.fields]);
+  }
+
+  revRange(end = '+', start = '-', count = -1) {
+    let list = [...this.entries].reverse();
+    if (end !== '+') {
+      const e = this._parseId(end);
+      list = list.filter((item) => item.ms < e.ms || (item.ms === e.ms && item.seq <= e.seq));
+    }
+    if (start !== '-') {
+      const s = this._parseId(start);
+      list = list.filter((item) => item.ms > s.ms || (item.ms === s.ms && item.seq >= s.seq));
+    }
+    if (count >= 0) {
+      list = list.slice(0, count);
+    }
+    return list.map((e) => [e.id, e.fields]);
+  }
+
+  del(...ids) {
+    const idSet = new Set(ids.map(String));
+    const initial = this.entries.length;
+    this.entries = this.entries.filter((e) => !idSet.has(e.id));
+    return initial - this.entries.length;
+  }
+
+  trim(maxLen) {
+    const max = parseInt(maxLen, 10);
+    if (isNaN(max) || max < 0) return 0;
+    if (this.entries.length <= max) return 0;
+    const toRemove = this.entries.length - max;
+    this.entries = this.entries.slice(toRemove);
+    return toRemove;
+  }
 }
 
 module.exports = {
@@ -396,4 +632,5 @@ module.exports = {
   RedisSet,
   RedisHash,
   RedisSortedSet,
+  RedisStream,
 };

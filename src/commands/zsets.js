@@ -1,5 +1,6 @@
 'use strict';
 
+const { NULL_ARRAY } = require('../protocol/serializer');
 const { RedisSortedSet } = require('../datastore/data_types');
 
 function registerZSetCommands(registry) {
@@ -20,7 +21,7 @@ function registerZSetCommands(registry) {
 
     let idx = 1;
     while (idx < args.length) {
-      const opt = args[idx].toUpperCase();
+      const opt = String(args[idx]).toUpperCase();
       if (opt === 'NX') {
         options.nx = true;
         idx++;
@@ -63,6 +64,9 @@ function registerZSetCommands(registry) {
       count += zset.add(score, member, options);
     }
     db.emit('key:modified', key);
+    if (client.server && typeof client.server.checkBlockedZSetClients === 'function') {
+      client.server.checkBlockedZSetClients(db.index, key);
+    }
     return count;
   });
 
@@ -172,6 +176,9 @@ function registerZSetCommands(registry) {
 
     const res = entry.value.incrby(increment, member);
     db.emit('key:modified', key);
+    if (client.server && typeof client.server.checkBlockedZSetClients === 'function') {
+      client.server.checkBlockedZSetClients(db.index, key);
+    }
     return res;
   });
 
@@ -240,6 +247,195 @@ function registerZSetCommands(registry) {
       throw new Error("ERR wrong number of arguments for 'zrevrangebyscore' command");
     }
     return registry.execute(client, ['ZRANGE', args[0], args[2], args[1], 'BYSCORE', 'REV', ...args.slice(3)]);
+  });
+
+  registry.register('ZREMRANGEBYRANK', (client, args) => {
+    if (args.length < 3) {
+      throw new Error("ERR wrong number of arguments for 'zremrangebyrank' command");
+    }
+    const start = parseInt(args[1], 10);
+    const stop = parseInt(args[2], 10);
+    if (isNaN(start) || isNaN(stop)) {
+      throw new Error('ERR value is not an integer or out of range');
+    }
+
+    const db = client.getDB();
+    const key = args[0];
+    const entry = db.getEntry(key);
+    if (!entry) return 0;
+    if (entry.type !== 'zset') {
+      throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+    }
+
+    const removed = entry.value.remRangeByRank(start, stop);
+    if (entry.value.card() === 0) {
+      db.deleteKey(key);
+    } else {
+      db.emit('key:modified', key);
+    }
+    return removed;
+  });
+
+  registry.register('ZREMRANGEBYSCORE', (client, args) => {
+    if (args.length < 3) {
+      throw new Error("ERR wrong number of arguments for 'zremrangebyscore' command");
+    }
+    RedisSortedSet.parseScoreBound(args[1]);
+    RedisSortedSet.parseScoreBound(args[2]);
+
+    const db = client.getDB();
+    const key = args[0];
+    const entry = db.getEntry(key);
+    if (!entry) return 0;
+    if (entry.type !== 'zset') {
+      throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+    }
+
+    const removed = entry.value.remRangeByScore(args[1], args[2]);
+    if (entry.value.card() === 0) {
+      db.deleteKey(key);
+    } else {
+      db.emit('key:modified', key);
+    }
+    return removed;
+  });
+
+  registry.register('ZREMRANGEBYLEX', (client, args) => {
+    if (args.length < 3) {
+      throw new Error("ERR wrong number of arguments for 'zremrangebylex' command");
+    }
+    RedisSortedSet.parseLexBound(args[1]);
+    RedisSortedSet.parseLexBound(args[2]);
+
+    const db = client.getDB();
+    const key = args[0];
+    const entry = db.getEntry(key);
+    if (!entry) return 0;
+    if (entry.type !== 'zset') {
+      throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+    }
+
+    const removed = entry.value.remRangeByLex(args[1], args[2]);
+    if (entry.value.card() === 0) {
+      db.deleteKey(key);
+    } else {
+      db.emit('key:modified', key);
+    }
+    return removed;
+  });
+
+  registry.register('ZPOPMIN', (client, args) => {
+    if (args.length < 1) {
+      throw new Error("ERR wrong number of arguments for 'zpopmin' command");
+    }
+    const count = args.length > 1 ? parseInt(args[1], 10) : 1;
+    if (isNaN(count) || count < 0) {
+      throw new Error('ERR value is not an integer or out of range');
+    }
+    const db = client.getDB();
+    const key = args[0];
+    const entry = db.getEntry(key);
+    if (!entry) return [];
+    if (entry.type !== 'zset') {
+      throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+    }
+    const popped = entry.value.popMin(count);
+    if (entry.value.card() === 0) {
+      db.deleteKey(key);
+    } else {
+      db.emit('key:modified', key);
+    }
+    return popped;
+  });
+
+  registry.register('ZPOPMAX', (client, args) => {
+    if (args.length < 1) {
+      throw new Error("ERR wrong number of arguments for 'zpopmax' command");
+    }
+    const count = args.length > 1 ? parseInt(args[1], 10) : 1;
+    if (isNaN(count) || count < 0) {
+      throw new Error('ERR value is not an integer or out of range');
+    }
+    const db = client.getDB();
+    const key = args[0];
+    const entry = db.getEntry(key);
+    if (!entry) return [];
+    if (entry.type !== 'zset') {
+      throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+    }
+    const popped = entry.value.popMax(count);
+    if (entry.value.card() === 0) {
+      db.deleteKey(key);
+    } else {
+      db.emit('key:modified', key);
+    }
+    return popped;
+  });
+
+  registry.register('BZPOPMIN', (client, args) => handleBlockingZSetPop(client, args, 'min'));
+  registry.register('BZPOPMAX', (client, args) => handleBlockingZSetPop(client, args, 'max'));
+}
+
+function handleBlockingZSetPop(client, args, direction) {
+  if (args.length < 2) {
+    throw new Error(`ERR wrong number of arguments for 'bzpop${direction}' command`);
+  }
+  const timeoutSec = parseFloat(args[args.length - 1]);
+  if (isNaN(timeoutSec) || timeoutSec < 0) {
+    throw new Error('ERR timeout is negative');
+  }
+  const keys = args.slice(0, -1);
+  const db = client.getDB();
+
+  // Check if any key has elements right now
+  for (const key of keys) {
+    const entry = db.getEntry(key);
+    if (entry) {
+      if (entry.type !== 'zset') {
+        throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value');
+      }
+      if (entry.value.card() > 0) {
+        const popped = direction === 'min' ? entry.value.popMin(1) : entry.value.popMax(1);
+        if (entry.value.card() === 0) {
+          db.deleteKey(key);
+        } else {
+          db.emit('key:modified', key);
+        }
+        return [key, popped[0], popped[1]];
+      }
+    }
+  }
+
+  // Block client until an item is pushed or timeout expires
+  return new Promise((resolve) => {
+    let timer = null;
+    const blockInfo = {
+      type: 'zset',
+      dbIndex: db.index,
+      keys,
+      direction,
+      resolve: (result) => {
+        if (timer) clearTimeout(timer);
+        if (client.server) {
+          client.server.unblockClient(client);
+        }
+        resolve(result);
+      },
+    };
+
+    if (timeoutSec > 0) {
+      timer = setTimeout(() => {
+        if (client.server) {
+          client.server.unblockClient(client);
+        }
+        resolve(NULL_ARRAY);
+      }, timeoutSec * 1000);
+    }
+    blockInfo.timer = timer;
+
+    if (client.server) {
+      client.server.blockClient(client, blockInfo);
+    }
   });
 }
 

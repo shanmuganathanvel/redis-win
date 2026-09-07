@@ -38,10 +38,10 @@ class ClientSession {
         const result = this.server.registry.execute(this, rawArgs);
         if (result instanceof Promise) {
           const asyncResult = await result;
-          if (asyncResult !== null) {
+          if (asyncResult !== undefined) {
             this.send(asyncResult);
           }
-        } else if (result !== null) {
+        } else if (result !== undefined) {
           this.send(result);
         }
       } catch (err) {

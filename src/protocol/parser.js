@@ -1,5 +1,7 @@
 'use strict';
 
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
 /**
  * Streaming RESP2 / Inline parser for Redis commands.
  * Handles partial TCP packets, pipelined commands, multi-bulk commands,
@@ -218,7 +220,13 @@ class RespParser {
       throw new Error('Protocol error: bulk string not terminated by CRLF');
     }
 
-    const value = this.buffer.toString('utf8', dataStart, dataEnd);
+    const rawBuf = this.buffer.subarray(dataStart, dataEnd);
+    let value;
+    try {
+      value = utf8Decoder.decode(rawBuf);
+    } catch {
+      value = Buffer.from(rawBuf);
+    }
     return { value, nextPos: fullEnd };
   }
 

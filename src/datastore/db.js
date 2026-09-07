@@ -215,6 +215,8 @@ class SingleDB extends EventEmitter {
         serializedVal = Object.fromEntries(entry.value.fields);
       } else if (entry.type === 'zset') {
         serializedVal = entry.value.sorted;
+      } else if (entry.type === 'stream') {
+        serializedVal = entry.value.entries;
       }
 
       data[k] = {

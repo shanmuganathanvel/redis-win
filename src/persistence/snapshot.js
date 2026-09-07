@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { RedisList, RedisSet, RedisHash, RedisSortedSet } = require('../datastore/data_types');
+const { RedisList, RedisSet, RedisHash, RedisSortedSet, RedisStream } = require('../datastore/data_types');
 
 class PersistenceManager {
   constructor(datastore, filePath) {
@@ -44,6 +44,8 @@ class PersistenceManager {
               zset.add(zItem.score, zItem.member);
             }
             value = zset;
+          } else if (item.type === 'stream') {
+            value = new RedisStream(item.value);
           }
 
           if (value !== undefined) {
