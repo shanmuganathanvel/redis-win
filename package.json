@@ -1,0 +1,28 @@
+{
+  "name": "redis-win",
+  "version": "1.0.0",
+  "description": "Ultra-lightweight, zero-dependency Redis replacement for Windows (and cross-platform) via npm/npx",
+  "main": "src/server.js",
+  "bin": {
+    "redis-win": "bin/redis-win.js"
+  },
+  "scripts": {
+    "start": "node bin/redis-win.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "keywords": [
+    "redis",
+    "redis-server",
+    "windows",
+    "in-memory",
+    "cache",
+    "resp",
+    "zero-dependency",
+    "lightweight"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

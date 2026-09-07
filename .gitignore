@@ -1,0 +1,4 @@
+node_modules/
+*.tmp*
+test_dump.json
+.DS_Store
