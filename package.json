@@ -1,7 +1,7 @@
 {
   "name": "redis-win",
   "version": "1.0.0",
-  "description": "Ultra-lightweight, zero-dependency Redis replacement for Windows (and cross-platform) via npm/npx",
+  "description": "Ultra-lightweight Redis replacement for Windows with BullMQ, Lua scripting, Streams, and auto-persistence via npm/npx. Zero C++ build tools required.",
   "main": "src/server.js",
   "bin": {
     "redis-win": "bin/redis-win.js"
@@ -27,7 +27,9 @@
     "in-memory",
     "cache",
     "resp",
-    "zero-dependency",
+    "bullmq",
+    "lua",
+    "streams",
     "lightweight",
     "npx"
   ],

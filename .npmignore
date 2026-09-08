@@ -1,0 +1,7 @@
+test/
+examples/
+.github/
+*.tmp*
+test_dump.json
+redis-dump.json
+.DS_Store
